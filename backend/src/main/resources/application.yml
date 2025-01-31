@@ -1,0 +1,41 @@
+spring:
+  profiles:
+    active: dev
+
+websocket:
+  endpoint: ${WS_ENDPOINT}
+  broker:
+    subscribe-prefix: ${WS_BROKER_SUBSCRIBE}
+    publish-prefix: ${WS_BROKER_PUBLISH}
+
+---
+spring:
+  config:
+    activate:
+      on-profile: dev
+
+websocket:
+  allowed-origins: ${DEV_WS_ALLOWED_ORIGINS}
+
+server:
+  port: ${SERVER_PORT}
+
+logging:
+  level:
+    org.springframework.web.socket: DEBUG
+
+---
+spring:
+  config:
+    activate:
+      on-profile: prod
+
+websocket:
+  allowed-origins: ${PROD_WS_ALLOWED_ORIGINS}
+
+server:
+  port: ${PROD_SERVER_PORT}
+
+logging:
+  level:
+    org.springframework.web.socket: INFO 
