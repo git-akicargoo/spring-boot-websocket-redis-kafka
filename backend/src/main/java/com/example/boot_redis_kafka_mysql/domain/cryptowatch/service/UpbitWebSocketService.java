@@ -3,6 +3,10 @@ package com.example.boot_redis_kafka_mysql.domain.cryptowatch.service;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.lang.NonNull;
@@ -33,120 +37,145 @@ public class UpbitWebSocketService implements ExchangeWebSocketService {
     @Value("${crypto.exchanges.upbit.websocket-url}")
     private String websocketUrl;
     
+    @Value("${WS_MAX_REQUESTS_PER_MINUTE:90}")
+    private int maxRequestsPerMinute;
+    
+    @Value("${WS_MIN_MESSAGE_INTERVAL:1000}")
+    private long minMessageInterval;
+    
+    @Value("${WS_LOG_INTERVAL:10}")
+    private int logInterval;
+    
+    private final AtomicInteger minuteRequestCount = new AtomicInteger(0);
     private WebSocketSession webSocketSession;
     private final ObjectMapper objectMapper;
     private final List<PriceListener> priceListeners = new ArrayList<>();
-    private final StringBuilder connectionLog = new StringBuilder();
+    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
+    
+    private volatile long lastMessageTime = 0;
     
     @PostConstruct
     @Override
     public void connect() {
+        // 매 분마다 카운터 초기화
+        scheduler.scheduleAtFixedRate(() -> 
+            minuteRequestCount.set(0), 0, 1, TimeUnit.MINUTES);
+        
+        // 연결 상태 체크 및 재연결
+        scheduler.scheduleAtFixedRate(this::checkConnection, 0, 5, TimeUnit.SECONDS);
+                
+        connectWebSocket();
+    }
+    
+    private void checkConnection() {
+        if (webSocketSession == null || !webSocketSession.isOpen()) {
+            log.warn("WebSocket 연결이 끊어졌습니다. 재연결 시도...");
+            connectWebSocket();
+        }
+    }
+    
+    private void connectWebSocket() {
         try {
-            connectionLog.append("\n=== 🔌 Upbit WebSocket 연결 정보 ===\n");
-            connectionLog.append(String.format("🌐 접속 URL: %s\n", websocketUrl));
-            
             WebSocketClient webSocketClient = new StandardWebSocketClient();
-            WebSocketHandler webSocketHandler = new WebSocketHandler() {
+            webSocketClient.execute(new WebSocketHandler() {
                 @Override
                 public void afterConnectionEstablished(@NonNull WebSocketSession session) {
                     webSocketSession = session;
-                    connectionLog.append(String.format("✅ 연결 성공 (Session ID: %s)\n", session.getId()));
-                    
-                    try {
-                        // 모든 코인에 대한 구독 메시지 생성
-                        String symbols = Arrays.toString(CoinSymbol.getAllSymbols());
-                        connectionLog.append(String.format("📋 구독할 코인: %s\n", symbols));
-                        
-                        String subscribeMessage = String.format(
-                            "[{\"ticket\":\"test\"},{\"type\":\"ticker\",\"codes\":%s,\"isOnlyRealtime\":true}]",
-                            symbols
-                        );
-                        
-                        connectionLog.append("📡 구독 요청 전송\n");
-                        connectionLog.append(String.format("📨 요청 내용: %s\n", subscribeMessage));
-                        session.sendMessage(new BinaryMessage(subscribeMessage.getBytes()));
-                        connectionLog.append("✅ 구독 요청 완료\n");
-                    } catch (Exception e) {
-                        connectionLog.append(String.format("❌ 구독 요청 실패: %s\n", e.getMessage()));
-                    }
-                    
-                    log.info(connectionLog.toString());
+                    log.info("WebSocket 연결 성공");
+                    subscribeToSymbols(session);
                 }
-
+                
                 @Override
-                public void handleMessage(@NonNull WebSocketSession session, @NonNull WebSocketMessage<?> message) {
-                    StringBuilder priceLog = new StringBuilder();
-                    priceLog.append("\n=== 💰 실시간 가격 정보 ===\n");
-                    
-                    try {
-                        String payload = new String(((BinaryMessage) message).getPayload().array());
-                        JsonNode node = objectMapper.readTree(payload);
-                        String symbol = node.get("code").asText();
-                        
-                        // 코인 한글명 찾기
-                        String coinName = Arrays.stream(CoinSymbol.values())
-                                .filter(coin -> coin.getSymbol().equals(symbol))
-                                .findFirst()
-                                .map(CoinSymbol::getKoreanName)
-                                .orElse(symbol);
-                        
-                        PriceDto priceDto = PriceDto.builder()
-                                .exchange(getExchangeName())
-                                .symbol(symbol)
-                                .price(node.get("trade_price").asDouble())
-                                .changeRate(node.get("signed_change_rate").asDouble() * 100)
-                                .timestamp(node.get("timestamp").asLong())
-                                .build();
-                        
-                        // 간단한 가격 정보만 로깅
-                        priceLog.append(String.format("💵 %s: %s (%.2f%%)\n", 
-                            coinName,
-                            String.format("%,d", priceDto.getPrice().longValue()),
-                            priceDto.getChangeRate()));
-                        priceLog.append(String.format("⏰ %s\n", 
-                            new java.text.SimpleDateFormat("HH:mm:ss").format(new java.util.Date(priceDto.getTimestamp()))));
-                        
-                        log.info(priceLog.toString());
-                        notifyListeners(priceDto);
-                    } catch (Exception e) {
-                        log.error("❌ 가격 데이터 처리 실패", e);
-                    }
+                public void handleMessage(@NonNull WebSocketSession session, 
+                                        @NonNull WebSocketMessage<?> message) {
+                    handleWebSocketMessage(message);
                 }
-
+                
                 @Override
-                public void handleTransportError(@NonNull WebSocketSession session, @NonNull Throwable exception) {
-                    log.error("❌ WebSocket 전송 에러: {}", exception.getMessage());
+                public void handleTransportError(@NonNull WebSocketSession session,
+                                               @NonNull Throwable exception) {
+                    log.error("WebSocket 전송 에러", exception);
+                    reconnect();
                 }
-
+                
                 @Override
-                public void afterConnectionClosed(@NonNull WebSocketSession session, @NonNull CloseStatus status) {
-                    log.info("\n=== 🔌 WebSocket 연결 종료 ===\n상태: {}", status);
+                public void afterConnectionClosed(@NonNull WebSocketSession session,
+                                                @NonNull CloseStatus status) {
+                    log.warn("WebSocket 연결 종료: {}", status);
+                    reconnect();
                 }
-
+                
                 @Override
                 public boolean supportsPartialMessages() {
                     return false;
                 }
-            };
-            
-            webSocketClient.execute(webSocketHandler, websocketUrl).get();
-            
+            }, websocketUrl);
         } catch (Exception e) {
-            connectionLog.append(String.format("❌ 연결 실패: %s\n", e.getMessage()));
-            log.error(connectionLog.toString());
+            log.error("WebSocket 연결 실패", e);
+            reconnect();
         }
     }
-
-    @PreDestroy
-    @Override
-    public void disconnect() {
-        if (webSocketSession != null && webSocketSession.isOpen()) {
-            try {
-                webSocketSession.close();
-            } catch (Exception e) {
-                log.error("Failed to close WebSocket session", e);
-            }
+    
+    private void reconnect() {
+        try {
+            Thread.sleep(5000); // 5초 대기
+            connectWebSocket();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
+    }
+    
+    private void subscribeToSymbols(WebSocketSession session) {
+        try {
+            String symbols = Arrays.toString(CoinSymbol.getAllSymbols());
+            String subscribeMessage = String.format(
+                "[{\"ticket\":\"UNIQUE_TICKET\"},{\"type\":\"ticker\",\"codes\":%s}]",
+                symbols
+            );
+            session.sendMessage(new BinaryMessage(subscribeMessage.getBytes()));
+            log.info("코인 구독 성공: {}", symbols);
+        } catch (Exception e) {
+            log.error("코인 구독 실패", e);
+            reconnect();
+        }
+    }
+    
+    private void handleWebSocketMessage(WebSocketMessage<?> message) {
+        long currentTime = System.currentTimeMillis();
+        if (currentTime - lastMessageTime < minMessageInterval) {
+            return;
+        }
+        
+        if (minuteRequestCount.incrementAndGet() > maxRequestsPerMinute) {
+            if (minuteRequestCount.get() % logInterval == 0) {
+                log.debug("분당 요청 제한 초과. 잠시 후 다시 시도합니다.");
+            }
+            return;
+        }
+        
+        try {
+            String payload = new String(((BinaryMessage) message).getPayload().array());
+            JsonNode node = objectMapper.readTree(payload);
+            
+            PriceDto priceDto = PriceDto.builder()
+                    .exchange(getExchangeName())
+                    .symbol(node.get("code").asText())
+                    .price(node.get("trade_price").asDouble())
+                    .changeRate(node.get("signed_change_rate").asDouble() * 100)
+                    .timestamp(node.get("timestamp").asLong())
+                    .build();
+            
+            lastMessageTime = currentTime;
+            notifyListeners(priceDto);
+        } catch (Exception e) {
+            log.error("메시지 처리 실패", e);
+        }
+    }
+    
+    @PreDestroy
+    public void cleanup() {
+        scheduler.shutdown();
+        disconnect();
     }
 
     @Override
@@ -161,5 +190,17 @@ public class UpbitWebSocketService implements ExchangeWebSocketService {
 
     private void notifyListeners(PriceDto priceDto) {
         priceListeners.forEach(listener -> listener.onPriceUpdate(priceDto));
+    }
+
+    @PreDestroy
+    @Override
+    public void disconnect() {
+        if (webSocketSession != null && webSocketSession.isOpen()) {
+            try {
+                webSocketSession.close();
+            } catch (Exception e) {
+                log.error("Failed to close WebSocket session", e);
+            }
+        }
     }
 } 

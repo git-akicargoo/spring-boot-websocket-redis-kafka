@@ -19,11 +19,20 @@ public class CryptoWebSocketConfig implements WebSocketConfigurer {
     @Value("${websocket.allowed-origins}")
     private String allowedOrigins;
     
+    @Value("${websocket.endpoint}")
+    private String endpoint;
+    
+    @Value("${WS_MAX_CONNECTIONS_PER_SECOND:4}")
+    private int maxConnectionsPerSecond;
+    
+    @Value("${WS_MAX_REQUESTS_PER_SECOND:4}")
+    private int maxRequestsPerSecond;
+    
     private final CryptoWebSocketHandler cryptoWebSocketHandler;
 
     @Override
     public void registerWebSocketHandlers(@NonNull WebSocketHandlerRegistry registry) {
-        registry.addHandler(cryptoWebSocketHandler, "/ws/crypto")
+        registry.addHandler(cryptoWebSocketHandler, endpoint)
                 .setAllowedOrigins(allowedOrigins);
     }
 } 

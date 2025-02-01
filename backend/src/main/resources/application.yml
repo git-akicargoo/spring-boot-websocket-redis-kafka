@@ -1,6 +1,6 @@
 spring:
   profiles:
-    active: ${SPRING_PROFILES_ACTIVE:dev}
+    active: ${SPRING_PROFILES_ACTIVE:local}
   config:
     import: optional:file:.env[.properties]
 
@@ -9,45 +9,69 @@ server:
 
 websocket:
   allowed-origins: ${WS_ALLOWED_ORIGINS:http://localhost:5173}
+  endpoint: ${WS_ENDPOINT:/ws/crypto}
 
 crypto:
   exchanges:
     upbit:
-      websocket-url: ${UPBIT_WS_URL:wss://api.upbit.com/websocket/v1}
+      websocket-url: ${UPBIT_WS_URL}
   features:
     redis:
       enabled: ${REDIS_ENABLED:false}
     kafka:
       enabled: ${KAFKA_ENABLED:false}
 
+logging:
+  level:
+    org.springframework.web.socket: ${LOGGING_LEVEL:INFO}
+
 ---
+# local 프로파일
+spring:
+  config:
+    activate:
+      on-profile: local
+
+server:
+  port: ${LOCAL_SERVER_PORT}
+
+websocket:
+  allowed-origins: ${LOCAL_WS_ALLOWED_ORIGINS}
+
+logging:
+  level:
+    org.springframework.web.socket: ${LOCAL_LOGGING_LEVEL}
+
+---
+# dev 프로파일
 spring:
   config:
     activate:
       on-profile: dev
 
+server:
+  port: ${DEV_SERVER_PORT}
+
 websocket:
-  endpoint: ${WS_ENDPOINT}
-  broker:
-    subscribe-prefix: ${WS_BROKER_SUBSCRIBE}
-    publish-prefix: ${WS_BROKER_PUBLISH}
+  allowed-origins: ${DEV_WS_ALLOWED_ORIGINS}
 
 logging:
   level:
-    org.springframework.web.socket: DEBUG
+    org.springframework.web.socket: ${DEV_LOGGING_LEVEL}
 
 ---
+# prod 프로파일
 spring:
   config:
     activate:
       on-profile: prod
 
-websocket:
-  allowed-origins: ${PROD_WS_ALLOWED_ORIGINS}
-
 server:
   port: ${PROD_SERVER_PORT}
 
+websocket:
+  allowed-origins: ${PROD_WS_ALLOWED_ORIGINS}
+
 logging:
   level:
-    org.springframework.web.socket: INFO 
+    org.springframework.web.socket: ${PROD_LOGGING_LEVEL} 

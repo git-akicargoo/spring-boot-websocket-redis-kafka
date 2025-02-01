@@ -1,8 +1,13 @@
 package com.example.boot_redis_kafka_mysql.domain.cryptowatch.controller;
 
+import java.io.IOException;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
@@ -29,14 +34,37 @@ public class CryptoWebSocketHandler extends TextWebSocketHandler implements Pric
     private final UpbitWebSocketService upbitService;
     private final ObjectMapper objectMapper;
     private final CryptoFeatureConfig featureConfig;
+    
+    private final AtomicInteger connectionCount = new AtomicInteger(0);
+    private final AtomicInteger requestCount = new AtomicInteger(0);
+    
+    @Value("${WS_MAX_CONNECTIONS_PER_SECOND:4}")
+    private int maxConnectionsPerSecond;
+    
+    @Value("${WS_MAX_REQUESTS_PER_SECOND:4}")
+    private int maxRequestsPerSecond;
 
     @PostConstruct
     public void init() {
         upbitService.addPriceListener(this);
+        // 매 초마다 카운터 초기화
+        Executors.newSingleThreadScheduledExecutor()
+            .scheduleAtFixedRate(() -> {
+                connectionCount.set(0);
+                requestCount.set(0);
+            }, 0, 1, TimeUnit.SECONDS);
     }
 
     @Override
     public void afterConnectionEstablished(@NonNull WebSocketSession session) {
+        if (connectionCount.incrementAndGet() > maxConnectionsPerSecond) {
+            try {
+                session.close(CloseStatus.POLICY_VIOLATION);
+                return;
+            } catch (IOException e) {
+                log.error("Error closing connection", e);
+            }
+        }
         sessions.add(session);
         log.info("Client connected: {}", session.getId());
     }
@@ -49,34 +77,45 @@ public class CryptoWebSocketHandler extends TextWebSocketHandler implements Pric
 
     @Override
     public void onPriceUpdate(PriceDto priceDto) {
+        if (requestCount.incrementAndGet() > maxRequestsPerSecond) {
+            log.debug("Request limit reached, skipping update");
+            return;
+        }
+        
         try {
-            // Redis 캐싱 (활성화된 경우)
             if (featureConfig.getRedis().isEnabled()) {
-                // Redis 캐싱 로직은 나중에 구현
+                // Redis 캐싱 로직
             }
 
-            // Kafka 메시지 발행 (활성화된 경우)
             if (featureConfig.getKafka().isEnabled()) {
-                // Kafka 발행 로직은 나중에 구현
+                // Kafka 발행 로직
             }
 
-            // WebSocket 클라이언트들에게 브로드캐스트
             String message = objectMapper.writeValueAsString(priceDto);
-            broadcastMessage(new TextMessage(message));
+            broadcastMessage(message);
         } catch (Exception e) {
             log.error("Failed to process price update", e);
         }
     }
 
-    private void broadcastMessage(TextMessage message) {
-        sessions.forEach(session -> {
+    private void broadcastMessage(String message) {
+        sessions.removeIf(session -> !session.isOpen());
+        
+        for (WebSocketSession session : sessions) {
             try {
-                if (session.isOpen()) {
-                    session.sendMessage(message);
+                synchronized (session) {
+                    if (session.isOpen()) {
+                        session.sendMessage(new TextMessage(message));
+                    }
                 }
-            } catch (Exception e) {
+            } catch (IOException e) {
                 log.error("Failed to send message to client: {}", session.getId(), e);
+                try {
+                    session.close(CloseStatus.PROTOCOL_ERROR);
+                } catch (IOException ex) {
+                    log.error("Failed to close session", ex);
+                }
             }
-        });
+        }
     }
 } 
