@@ -14,7 +14,13 @@ websocket:
 crypto:
   exchanges:
     upbit:
+<<<<<<< HEAD
       websocket-url: ${UPBIT_WS_URL}
+=======
+      websocket-url: ${UPBIT_WS_URL:wss://api.upbit.com/websocket/v1}
+      api:
+        market-all: https://api.upbit.com/v1/market/all
+>>>>>>> feature/마켓-선택
   features:
     redis:
       enabled: ${REDIS_ENABLED:false}
