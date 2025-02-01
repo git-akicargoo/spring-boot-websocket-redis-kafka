@@ -44,6 +44,12 @@ dependencies {
 	implementation 'org.springframework.kafka:spring-kafka'
 	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.1.0'
 	implementation 'me.paulschwarz:spring-dotenv:4.0.0'
+
+	// WebSocket 관련
+	implementation 'org.springframework.boot:spring-boot-starter-websocket'
+	
+	// Utility
+	implementation 'com.google.guava:guava:31.1-jre'
 }
 
 tasks.named('test') {

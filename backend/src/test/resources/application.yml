@@ -1,0 +1,16 @@
+spring:
+  profiles:
+    active: test
+
+websocket:
+  allowed-origins: "*"
+
+crypto:
+  features:
+    redis:
+      enabled: false
+    kafka:
+      enabled: false
+  exchanges:
+    upbit:
+      websocket-url: wss://api.upbit.com/websocket/v1 

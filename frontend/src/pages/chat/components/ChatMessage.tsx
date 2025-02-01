@@ -8,9 +8,13 @@ interface Props {
 export const ChatMessage = ({ message }: Props) => {
   return (
     <MessageContainer>
-      <Sender>{message.sender}</Sender>
+      <Sender>{message.sender || 'Anonymous'}</Sender>
       <Content>{message.content}</Content>
-      <Time>{new Date(message.timestamp).toLocaleTimeString()}</Time>
+      <Time>
+        {message.timestamp 
+          ? new Date(message.timestamp).toLocaleTimeString()
+          : new Date().toLocaleTimeString()}
+      </Time>
     </MessageContainer>
   );
 };

@@ -1,2 +1,2 @@
-export const CHAT_SUBSCRIBE_URL = `${import.meta.env.VITE_WS_BROKER_SUBSCRIBE}/chat`;
-export const CHAT_PUBLISH_URL = `${import.meta.env.VITE_WS_BROKER_PUBLISH}/chat`; 
+export const CHAT_SUBSCRIBE_URL = `${import.meta.env.VITE_WS_SUBSCRIBE_PREFIX}${import.meta.env.VITE_WS_MESSAGES_ENDPOINT}`;
+export const CHAT_PUBLISH_URL = `${import.meta.env.VITE_WS_PUBLISH_PREFIX}${import.meta.env.VITE_WS_CHAT_ENDPOINT}`; 

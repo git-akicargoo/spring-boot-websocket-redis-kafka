@@ -1,4 +1,4 @@
-package com.example.boot_redis_kafka_mysql.controller;
+package com.example.boot_redis_kafka_mysql.domain.chat.controller;
 
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.SendTo;
@@ -7,9 +7,9 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.ResponseBody;
 
-import com.example.boot_redis_kafka_mysql.dto.ChatMessageRequest;
-import com.example.boot_redis_kafka_mysql.dto.ChatMessageResponse;
-import com.example.boot_redis_kafka_mysql.service.ChatService;
+import com.example.boot_redis_kafka_mysql.domain.chat.dto.ChatMessageRequest;
+import com.example.boot_redis_kafka_mysql.domain.chat.dto.ChatMessageResponse;
+import com.example.boot_redis_kafka_mysql.domain.chat.service.ChatService;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -17,7 +17,7 @@ import lombok.extern.slf4j.Slf4j;
 @Controller
 @RequiredArgsConstructor
 @Slf4j
-public class DemoWebSocketController {
+public class ChatController {
     private final ChatService chatService;
 
     @MessageMapping("/chat")
@@ -35,4 +35,4 @@ public class DemoWebSocketController {
         log.info("Received REST API chat message: {}", request);
         return chatService.handleMessage(request);
     }
-}
+} 

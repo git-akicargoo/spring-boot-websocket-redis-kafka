@@ -1,51 +1,53 @@
 import { useEffect, useRef, useCallback } from 'react';
-import { Client } from '@stomp/stompjs';
-import { config } from '../../../shared/config/environment';
+import { Client, StompHeaders, IMessage } from '@stomp/stompjs';
+import { config } from '../../../config';
 import { CHAT_SUBSCRIBE_URL, CHAT_PUBLISH_URL } from '../../../shared/constants/websocket';
 import { Message } from '../types/chat';
 
-interface UseWebSocketProps {
+interface MessageHandler {
   onMessage: (message: Message) => void;
 }
 
-export const useWebSocket = ({ onMessage }: UseWebSocketProps) => {
-  const clientRef = useRef<Client | null>(null);
+export const useWebSocket = ({ onMessage }: MessageHandler) => {
+  const client = useRef<Client | null>(null);
 
   const connect = useCallback(() => {
-    const client = new Client({
-      brokerURL: config.wsUrl,
+    client.current = new Client({
+      brokerURL: `${config.ws.url}/ws`,
       onConnect: () => {
-        client.subscribe(CHAT_SUBSCRIBE_URL, (message) => {
-          const receivedMessage = JSON.parse(message.body);
+        console.log('Connected to WebSocket');
+        client.current?.subscribe(CHAT_SUBSCRIBE_URL, (message: IMessage) => {
+          const receivedMessage = JSON.parse(message.body) as Message;
           onMessage(receivedMessage);
         });
+      },
+      onStompError: (frame) => {
+        console.error('STOMP Error:', frame);
       }
     });
 
-    client.activate();
-    clientRef.current = client;
+    client.current.activate();
   }, [onMessage]);
-
-  const sendMessage = useCallback((content: string) => {
-    if (clientRef.current?.connected) {
-      clientRef.current.publish({
-        destination: CHAT_PUBLISH_URL,
-        body: JSON.stringify({
-          content,
-          timestamp: new Date().toISOString()
-        })
-      });
-    }
-  }, []);
 
   useEffect(() => {
     connect();
     return () => {
-      if (clientRef.current) {
-        clientRef.current.deactivate();
+      if (client.current) {
+        client.current.deactivate();
       }
     };
   }, [connect]);
 
-  return { sendMessage, connect };
+  const sendMessage = useCallback((message: string) => {
+    if (client.current?.connected) {
+      const chatMessage: Message = { content: message };
+      client.current.publish({
+        destination: CHAT_PUBLISH_URL,
+        body: JSON.stringify(chatMessage),
+        headers: {} as StompHeaders
+      });
+    }
+  }, []);
+
+  return { sendMessage };
 };

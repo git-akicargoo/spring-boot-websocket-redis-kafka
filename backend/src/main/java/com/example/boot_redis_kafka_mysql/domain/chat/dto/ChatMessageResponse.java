@@ -1,4 +1,4 @@
-package com.example.boot_redis_kafka_mysql.dto;
+package com.example.boot_redis_kafka_mysql.domain.chat.dto;
 
 import java.time.LocalDateTime;
 
